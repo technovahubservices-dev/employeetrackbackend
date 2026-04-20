@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 
 // Import controllers
-const { login, supervisorlogin } = require('../controller/logincontroller');
+const { login, supervisorlogin ,register} = require('../controller/logincontroller');
 const uploadController = require('../controller/uploadController');
 const fixedUploadController = require('../controller/fixedUploadController');
 const driveVerificationController = require('../controller/driveVerificationController');
@@ -23,6 +23,10 @@ router.use(bodyParser.json());
 // Login route
 router.post('/login', login);
 router.post('/supervisorlogin', supervisorlogin);
+
+
+
+router.post('/register',register);
 
 router.post('/camera',saveToggle);
 
