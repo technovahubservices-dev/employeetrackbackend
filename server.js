@@ -13,6 +13,10 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Serve uploaded videos statically
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+console.log('Static file serving configured for /uploads');
+
 // Root route
 app.get('/', (req, res) => {
   res.json({
@@ -37,8 +41,11 @@ mongoose.connect(process.env.MONGO_URI)
 const Routes = require('./route/route');
 app.use('/api', Routes);
 
+app.use('/uploads', express.static('uploads'));
+
 // Start server
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`Access the API at: http://localhost:${PORT}`);
 });
+  
