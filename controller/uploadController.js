@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs');
+const Video = require('../model/Video');
 
 // Helper function to format file size
 function formatFileSize(bytes) {
@@ -15,73 +16,58 @@ function formatFileSize(bytes) {
 exports.getAllVideos = async (req, res) => {
   try {
     console.log('=== GET ALL VIDEOS DEBUG START ===');
-    const uploadDir = path.join(__dirname, '../uploads');
-    console.log('Upload directory:', uploadDir);
-    console.log('Directory exists:', fs.existsSync(uploadDir));
+    
+    // Get videos from Video model (database)
+    const videos = await Video.find({})
+      .sort({ timestamp: -1 })
+      .limit(100); // Limit to last 100 videos
 
-    // Check if uploads directory exists
-    if (!fs.existsSync(uploadDir)) {
-      console.log('Uploads directory does not exist');
+    console.log('Videos found in database:', videos.length);
+
+    if (videos.length === 0) {
+      console.log('No videos found in database');
       return res.status(200).json({
+        success: true,
         message: 'No videos found',
         data: []
       });
     }
 
-    // Read all files in uploads folder
-    fs.readdir(uploadDir, (err, files) => {
-      if (err) {
-        console.error('Error reading directory:', err);
-        return res.status(500).json({
-          message: 'Error reading files',
-          error: err.message
-        });
-      }
-
-      console.log('Files found in uploads:', files);
-
-      // Filter only video files
-      const videos = files.filter(file =>
-        file.endsWith('.mp4') ||
-        file.endsWith('.mov') ||
-        file.endsWith('.avi') ||
-        file.endsWith('.wmv') ||
-        file.endsWith('.flv') ||
-        file.endsWith('.webm') ||
-        file.endsWith('.mkv')
-      );
-
-      console.log('Video files filtered:', videos);
-
-      // Create response with file URLs and additional info
-      const videoList = videos.map(file => {
-        const filePath = path.join(uploadDir, file);
-        const stats = fs.statSync(filePath);
-        
-        return {
-          fileName: file,
-          fileUrl: `http://localhost:${process.env.PORT || 5000}/uploads/${file}`,
-          filePath: filePath,
-          fileSize: stats.size,
-          uploadDate: stats.birthtime.toISOString(),
-          sizeFormatted: formatFileSize(stats.size)
-        };
-      });
-
-      console.log('Video list with details:', videoList);
-      console.log('=== GET ALL VIDEOS DEBUG END ===');
-
-      res.status(200).json({
-        message: `Found ${videoList.length} videos`,
-        data: videoList
-      });
+    // Verify files exist and create response data
+    const videoList = videos.map(video => {
+      const fileExists = video.videoPath ? fs.existsSync(video.videoPath) : false;
+      
+      return {
+        _id: video._id,
+        employeeId: video.employeeId,
+        email: video.email,
+        employeeName: video.employeeName,
+        fileName: video.fileName,
+        videoUrl: video.videoUrl,
+        videoPath: video.videoPath,
+        fileSize: video.fileSize,
+        duration: video.duration,
+        timestamp: video.timestamp,
+        fileExists: fileExists,
+        location: video.location
+      };
     });
 
+    console.log('Video list created:', videoList.length, 'videos');
+    
+    res.status(200).json({
+      success: true,
+      message: 'Videos retrieved successfully',
+      data: videoList,
+      total: videoList.length
+    });
+    
   } catch (error) {
-    console.error('Fetch error:', error);
-    res.status(500).json({
-      message: 'Error fetching videos',
-      error: error.message
+    console.error('Error getting all videos:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error retrieving videos', 
+      error: error.message 
     });
   }
 };
@@ -114,6 +100,8 @@ exports.uploadVideo = async (req, res) => {
     const file = req.file;
     const filePath = file.path;
     const fileName = file.filename;
+    const apiBase = `${req.protocol}://${req.get('host')}`;
+    const fileUrl = `${apiBase}/uploads/${fileName}`;
 
     console.log(`Video uploaded by ${employeeId}: ${fileName}`);
     console.log(`File path: ${filePath}`);
@@ -128,6 +116,26 @@ exports.uploadVideo = async (req, res) => {
         message: 'File was not saved properly'
       });
     }
+
+    // Append a new DB record for each upload (never replace existing uploads)
+    const savedVideo = await Video.create({
+      employeeId,
+      email: `${employeeId}@example.com`, // Generate email from employeeId
+      employeeName: employeeId,
+      videoUrl: fileUrl,
+      videoPath: filePath,
+      fileName,
+      fileSize: file.size,
+      duration: 0, // Will be updated later if needed
+      videoBase64: null, // Will be added later if needed
+      location: {
+        lat: null,
+        lng: null,
+        locationName: null
+      }
+    });
+    
+    console.log('Video saved to Video model:', savedVideo._id);
     
     console.log('File verified to exist on disk');
     console.log('=== UPLOAD CONTROLLER DEBUG END ===');
@@ -142,7 +150,8 @@ exports.uploadVideo = async (req, res) => {
         fileSize: file.size,
         mimetype: file.mimetype,
         uploadTime: new Date().toISOString(),
-        fileUrl: `http://localhost:${process.env.PORT || 5000}/uploads/${fileName}`
+        fileUrl,
+        dbId: savedVideo._id
       }
     });
 
@@ -152,6 +161,61 @@ exports.uploadVideo = async (req, res) => {
       success: false,
       message: 'Error uploading video', 
       error: error.message 
+    });
+  }
+};
+
+exports.uploadVideos = async (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No video files uploaded'
+      });
+    }
+
+    const { employeeId } = req.body;
+    if (!employeeId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Employee ID is required'
+      });
+    }
+
+    const apiBase = `${req.protocol}://${req.get('host')}`;
+    const recordsToInsert = req.files.map((file) => ({
+      employeeId,
+      videoUrl: `${apiBase}/uploads/${file.filename}`,
+      fileName: file.filename,
+      videoPath: file.path,
+      fileSize: file.size,
+      mimetype: file.mimetype,
+      originalName: file.originalname
+    }));
+
+    const savedVideos = await VideoUpload.insertMany(recordsToInsert, { ordered: true });
+
+    res.status(200).json({
+      success: true,
+      message: `${savedVideos.length} videos uploaded successfully`,
+      count: savedVideos.length,
+      data: savedVideos.map((item) => ({
+        id: item._id,
+        employeeId: item.employeeId,
+        fileName: item.fileName,
+        filePath: item.videoPath,
+        fileUrl: item.videoUrl,
+        fileSize: item.fileSize,
+        mimetype: item.mimetype,
+        uploadTime: item.createdAt
+      }))
+    });
+  } catch (error) {
+    console.error('Multi-upload error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error uploading videos',
+      error: error.message
     });
   }
 };

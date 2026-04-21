@@ -5,13 +5,17 @@ async function getLocationName(lat, lng) {
     return new Promise((resolve, reject) => {
         const apiKey = process.env.GOOGLE_MAPS_API_KEY;
         
+        console.log('=== GEOCODING DEBUG ===');
+        console.log('API Key exists:', !!apiKey);
+        console.log('Coordinates:', lat, lng);
+        
         if (!apiKey) {
-            // Fallback: return coordinates if no API key
-            resolve(`Lat: ${lat}, Lng: ${lng}`);
-            return;
+            console.log('No API key found, using fallback');
+            return resolve(`Lat: ${lat}, Lng: ${lng}`);
         }
 
         const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${apiKey}`;
+        console.log('Request URL:', url.replace(apiKey, 'API_KEY_HIDDEN'));
         
         const request = https.get(url, (response) => {
             let data = '';
@@ -22,19 +26,24 @@ async function getLocationName(lat, lng) {
             
             response.on('end', () => {
                 try {
+                    console.log('Geocoding response status:', response.statusCode);
                     const result = JSON.parse(data);
+                    console.log('Geocoding result:', result);
                     
                     if (result.status === 'OK' && result.results.length > 0) {
-                        // Get the formatted address or use the first address component
-                        const address = result.results[0].formatted_address || 
-                                     result.results[0].address_components?.[0]?.long_name ||
-                                     `Location at ${lat}, ${lng}`;
+                        const address =
+                            result.results[0].formatted_address ||
+                            result.results[0].address_components?.[0]?.long_name ||
+                            `Location at ${lat}, ${lng}`;
+
+                        console.log('Resolved address:', address);
                         resolve(address);
                     } else {
+                        console.log('Geocoding failed:', result.status);
                         resolve(`Location at ${lat}, ${lng}`);
                     }
                 } catch (error) {
-                    console.error('Geocoding error:', error);
+                    console.error('Geocoding parse error:', error);
                     resolve(`Location at ${lat}, ${lng}`);
                 }
             });
@@ -46,13 +55,14 @@ async function getLocationName(lat, lng) {
         });
         
         request.setTimeout(5000, () => {
+            console.log('Geocoding request timeout');
             request.destroy();
             resolve(`Location at ${lat}, ${lng}`);
         });
     });
 }
 
-// Function to get location name with caching
+// Cache
 const locationCache = new Map();
 
 async function getCachedLocationName(lat, lng) {

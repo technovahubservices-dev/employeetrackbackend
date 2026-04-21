@@ -73,4 +73,4 @@ const videoSchema = new mongoose.Schema({
 videoSchema.index({ email: 1, timestamp: -1 });
 videoSchema.index({ employeeId: 1, timestamp: -1 });
 
-module.exports = mongoose.model('Video', videoSchema);
+module.exports = mongoose.models.VideoData || mongoose.model('VideoData', videoSchema);

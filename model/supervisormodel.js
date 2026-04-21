@@ -21,6 +21,10 @@ const supervisorSchema = new mongoose.Schema({
         type: Number,
         required: false
     },
+    address: {
+        type: String,
+        required: false
+    },
     timestamp: {
         type: Date,
         default: Date.now
@@ -28,3 +32,4 @@ const supervisorSchema = new mongoose.Schema({
 });
 
 module.exports = mongoose.model('supervisor', supervisorSchema);
+

@@ -13,6 +13,10 @@ const locationSchema = new mongoose.Schema({
         type: Number,
         required: true
     },
+    address: {
+        type: String,
+        required: false
+    },
     timestamp: {
         type: Date,
         default: Date.now

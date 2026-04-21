@@ -1,9 +1,11 @@
+
 const express = require('express');
 const router = express.Router();
 const bodyParser = require('body-parser');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, '..', 'uploads');
@@ -19,9 +21,10 @@ const storage = multer.diskStorage({
     cb(null, uploadsDir);
   },
   filename: function (req, file, cb) {
-    // Create unique filename with timestamp
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const filename = file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname);
+    // Create collision-resistant filename
+    const ext = (path.extname(file.originalname) || '').toLowerCase();
+    const uniqueSuffix = `${Date.now()}-${crypto.randomUUID()}`;
+    const filename = `${file.fieldname}-${uniqueSuffix}${ext}`;
     console.log('Generated filename:', filename);
     cb(null, filename);
   }
@@ -31,8 +34,13 @@ const storage = multer.diskStorage({
 const fileFilter = (req, file, cb) => {
   console.log('Received file:', file.originalname, 'Mimetype:', file.mimetype);
   
-  // Accept video files
-  if (file.mimetype.startsWith('video/')) {
+  const ext = (path.extname(file.originalname) || '').toLowerCase();
+  const allowedVideoExt = new Set(['.mp4', '.mov', '.avi', '.wmv', '.flv', '.webm', '.mkv', '.m4v', '.3gp']);
+  const isVideoMime = file.mimetype && file.mimetype.startsWith('video/');
+  const isVideoExt = allowedVideoExt.has(ext);
+
+  // Accept video files by mime or known extension
+  if (isVideoMime || isVideoExt) {
     console.log('File accepted:', file.originalname);
     cb(null, true);
   } else {
@@ -80,6 +88,35 @@ const uploadWithDebug = (fieldName) => {
   };
 };
 
+// Middleware to debug multiple uploads
+const uploadArrayWithDebug = (fieldName, maxCount = 10) => {
+  return (req, res, next) => {
+    console.log('=== UPLOAD ARRAY DEBUG START ===');
+    console.log('Request method:', req.method);
+    console.log('Request URL:', req.url);
+    console.log('Content-Type:', req.get('Content-Type'));
+    console.log('Field name:', fieldName, 'Max count:', maxCount);
+
+    upload.array(fieldName, maxCount)(req, res, (err) => {
+      if (err) {
+        console.log('Upload array error:', err);
+        return res.status(400).json({
+          success: false,
+          message: 'Upload failed',
+          error: err.message
+        });
+      }
+
+      console.log('Files uploaded successfully:');
+      console.log('req.files count:', req.files ? req.files.length : 0);
+      console.log('req.body:', req.body);
+      console.log('=== UPLOAD ARRAY DEBUG END ===');
+
+      next();
+    });
+  };
+};
+
 // Import controllers
 const { login, supervisorlogin, register } = require('../controller/logincontroller');
 const uploadController = require('../controller/uploadController');
@@ -87,8 +124,9 @@ const fixedUploadController = require('../controller/fixedUploadController');
 const driveVerificationController = require('../controller/driveVerificationController');
 const supervisorcontroller = require('../controller/supervisorcontroller');
 const { saveToggle, updateToggle, getCameraSettings } = require('../controller/cameracontroller');
-const { saveLocation, getLocations, getLatestLocation, getLocationsByEmployeeId, sendLocationToSupervisor } = require('../controller/locationController');
+const { saveLocation, getLocations, getLatestLocation, getLocationsByEmployeeId, sendLocationToSupervisor, getAllLocations } = require('../controller/locationController');
 const videocontroller = require('../controller/videocontroller');
+const { getAllUsers } = require('../controller/getalluser');
 
 
 
@@ -118,6 +156,7 @@ router.post('/getuser', login);
 router.get('/getusers', login);
 // Local storage video upload route (FIXED with absolute paths and debugging)
 router.post('/upload-video', uploadWithDebug('video'), uploadController.uploadVideo);
+router.post('/upload-videos', uploadArrayWithDebug('videos', 20), uploadController.uploadVideos);
 
 
 // Fixed Google Drive upload routes (uploads to gopisahana2004@gmail.com)
@@ -143,12 +182,21 @@ router.post('/message', supervisorcontroller.savedata);
 router.get('/getmessage', supervisorcontroller.getMessages);
 router.get('/getmessage/:email', supervisorcontroller.getMessagesByEmail);
 
+
+//register//
+
+router.get('/all',getAllUsers);
+
+
+
+
 // Location tracking routes
 router.post('/location', saveLocation);
 router.get('/location', getLocations);
 router.get('/location/:employeeId/latest', getLatestLocation);
 router.get('/location/:employeeId/all', getLocationsByEmployeeId);
 router.post('/location-to-supervisor', sendLocationToSupervisor);
+router.get('/location', getAllLocations); // New endpoint for all locations
 
 // Video routes
 router.post('/video/save', videocontroller.saveVideoInfo);
