@@ -1,9 +1,9 @@
-require('dotenv').config(); 
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') }); 
 
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
-const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -33,9 +33,20 @@ app.get('/', (req, res) => {
 });
 
 // MongoDB connection
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log("MongoDB Connected"))
-  .catch((err) => console.log("MongoDB Connection Error:", err.message));
+const mongoUri =
+  process.env.MONGO_URI ||
+  process.env.MONGODB_URI ||
+  process.env.MONGO_URL;
+
+if (!mongoUri) {
+  console.warn(
+    'MongoDB connection skipped: set MONGO_URI in .env or environment variables.'
+  );
+} else {
+  mongoose.connect(mongoUri)
+    .then(() => console.log("MongoDB Connected"))
+    .catch((err) => console.log("MongoDB Connection Error:", err.message));
+}
 
 // Load routes
 const Routes = require('./route/route');

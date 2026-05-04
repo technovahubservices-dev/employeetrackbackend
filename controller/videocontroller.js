@@ -1,6 +1,7 @@
 const Video = require('../model/Video');
 const fs = require('fs');
 const path = require('path');
+const googleDriveService = require('../services/googleDriveService');
 
 // Convert video file to base64
 const convertVideoToBase64 = (videoPath) => {
@@ -204,6 +205,186 @@ exports.deleteVideo = async (req, res) => {
     }
 };
 
+// Upload video to Google Drive
+exports.uploadVideoToDrive = async (req, res) => {
+    try {
+        const { 
+            employeeId, 
+            email, 
+            employeeName, 
+            lat,
+            lng,
+            locationName 
+        } = req.body;
+
+        if (!req.file) {
+            return res.status(400).json({ 
+                message: 'No video file provided' 
+            });
+        }
+
+        console.log(`📤 Processing video upload for employee: ${employeeId || 'UNKNOWN'}`);
+
+        // Generate unique filename with timestamp
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const fileName = `${employeeId || 'UNKNOWN'}_${timestamp}_${req.file.originalname}`;
+
+        // Upload to Google Drive
+        const driveResult = await googleDriveService.uploadVideo(
+            req.file.path, 
+            fileName,
+            {
+                description: `Employee: ${employeeName || email}, Location: ${locationName || 'Unknown'}`
+            }
+        );
+
+        if (!driveResult.success) {
+            // Clean up local file if drive upload failed
+            if (fs.existsSync(req.file.path)) {
+                fs.unlinkSync(req.file.path);
+            }
+            return res.status(500).json({ 
+                message: 'Failed to upload to Google Drive',
+                error: driveResult.error 
+            });
+        }
+
+        // Save video information to database
+        const video = new Video({
+            employeeId: employeeId || 'UNKNOWN',
+            email: email || 'unknown@example.com',
+            employeeName: employeeName || email?.split('@')[0] || 'Unknown',
+            videoUrl: driveResult.webViewLink,
+            videoPath: req.file.path,
+            fileName: driveResult.fileName,
+            fileSize: req.file.size,
+            driveFileId: driveResult.fileId,
+            location: {
+                lat: lat || null,
+                lng: lng || null,
+                locationName: locationName || null
+            }
+        });
+
+        await video.save();
+
+        // Clean up local file after successful upload
+        if (fs.existsSync(req.file.path)) {
+            fs.unlinkSync(req.file.path);
+            console.log(`🗑️ Cleaned up local file: ${req.file.path}`);
+        }
+
+        res.status(201).json({
+            message: 'Video uploaded successfully to Google Drive',
+            data: {
+                video: video,
+                driveInfo: {
+                    fileId: driveResult.fileId,
+                    webViewLink: driveResult.webViewLink,
+                    size: driveResult.size
+                }
+            }
+        });
+    } catch (error) {
+        console.error('❌ Error in uploadVideoToDrive:', error);
+        
+        // Clean up local file on error
+        if (req.file && fs.existsSync(req.file.path)) {
+            fs.unlinkSync(req.file.path);
+        }
+        
+        res.status(500).json({ 
+            message: 'Error uploading video',
+            error: error.message 
+        });
+    }
+};
+
+// Upload video from base64 to Google Drive
+exports.uploadBase64VideoToDrive = async (req, res) => {
+    try {
+        const { 
+            employeeId, 
+            email, 
+            employeeName, 
+            videoBase64,
+            fileName,
+            fileSize,
+            lat,
+            lng,
+            locationName 
+        } = req.body;
+
+        if (!videoBase64 || !fileName) {
+            return res.status(400).json({ 
+                message: 'videoBase64 and fileName are required' 
+            });
+        }
+
+        console.log(`📤 Processing base64 video upload for employee: ${employeeId || 'UNKNOWN'}`);
+
+        // Generate unique filename with timestamp
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const uniqueFileName = `${employeeId || 'UNKNOWN'}_${timestamp}_${fileName}`;
+
+        // Convert base64 to buffer
+        const videoBuffer = Buffer.from(videoBase64, 'base64');
+
+        // Upload to Google Drive from buffer
+        const driveResult = await googleDriveService.uploadVideoFromBuffer(
+            videoBuffer, 
+            uniqueFileName,
+            {
+                description: `Employee: ${employeeName || email}, Location: ${locationName || 'Unknown'}`
+            }
+        );
+
+        if (!driveResult.success) {
+            return res.status(500).json({ 
+                message: 'Failed to upload to Google Drive',
+                error: driveResult.error 
+            });
+        }
+
+        // Save video information to database
+        const video = new Video({
+            employeeId: employeeId || 'UNKNOWN',
+            email: email || 'unknown@example.com',
+            employeeName: employeeName || email?.split('@')[0] || 'Unknown',
+            videoUrl: driveResult.webViewLink,
+            fileName: driveResult.fileName,
+            fileSize: fileSize || videoBuffer.length,
+            driveFileId: driveResult.fileId,
+            videoBase64: videoBase64,
+            location: {
+                lat: lat || null,
+                lng: lng || null,
+                locationName: locationName || null
+            }
+        });
+
+        await video.save();
+
+        res.status(201).json({
+            message: 'Base64 video uploaded successfully to Google Drive',
+            data: {
+                video: video,
+                driveInfo: {
+                    fileId: driveResult.fileId,
+                    webViewLink: driveResult.webViewLink,
+                    size: driveResult.size
+                }
+            }
+        });
+    } catch (error) {
+        console.error('❌ Error in uploadBase64VideoToDrive:', error);
+        res.status(500).json({ 
+            message: 'Error uploading base64 video',
+            error: error.message 
+        });
+    }
+};
+
 // Upload video (legacy - keep for compatibility)
 exports.uploadVideo = async (req, res) => {
   try {
@@ -221,17 +402,6 @@ exports.uploadVideo = async (req, res) => {
       video: newVideo
     });
 
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-
-
-exports.getAllVideos = async (req, res) => {
-  try {
-    const videos = await Video.find();
-    res.status(200).json(videos);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

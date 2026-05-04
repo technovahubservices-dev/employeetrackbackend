@@ -128,6 +128,19 @@ const { saveLocation, getLocations, getLatestLocation, getLocationsByEmployeeId,
 const videocontroller = require('../controller/videocontroller');
 const { getAllUsers } = require('../controller/getalluser');
 
+const ensureHandler = (handler, fallbackMessage) => {
+  if (typeof handler === 'function') {
+    return handler;
+  }
+
+  return (req, res) => {
+    console.error(fallbackMessage);
+    res.status(503).json({
+      message: fallbackMessage
+    });
+  };
+};
+
 
 
 // JSON body parser
@@ -207,8 +220,21 @@ router.get('/video/:id', videocontroller.getVideoById);
 router.delete('/video/:id', videocontroller.deleteVideo);
 
 // Google Drive video upload routes
-router.post('/video/upload-to-drive', uploadWithDebug('video'), videocontroller.uploadVideoToDrive);
-router.post('/video/upload-base64-to-drive', videocontroller.uploadBase64VideoToDrive);
+router.post(
+  '/video/upload-to-drive',
+  uploadWithDebug('video'),
+  ensureHandler(
+    videocontroller.uploadVideoToDrive,
+    'Video upload to Drive is unavailable because uploadVideoToDrive is not exported'
+  )
+);
+router.post(
+  '/video/upload-base64-to-drive',
+  ensureHandler(
+    videocontroller.uploadBase64VideoToDrive,
+    'Base64 video upload to Drive is unavailable because uploadBase64VideoToDrive is not exported'
+  )
+);
 
 // Google Drive test routes
 const { testDriveConnection, listTestFiles } = require('../services/driveTestService');
