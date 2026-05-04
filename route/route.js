@@ -118,7 +118,7 @@ const uploadArrayWithDebug = (fieldName, maxCount = 10) => {
 };
 
 // Import controllers
-const { login, supervisorlogin, register } = require('../controller/logincontroller');
+const { login, supervisorlogin, register, deleteUser } = require('../controller/logincontroller');
 const uploadController = require('../controller/uploadController');
 const fixedUploadController = require('../controller/fixedUploadController');
 const driveVerificationController = require('../controller/driveVerificationController');
@@ -151,7 +151,7 @@ router.get('/test', (req, res) => {
   res.send("Route working ✅");
 });
 
-
+router.delete('/deleteuser/:id',deleteUser);
 router.post('/getuser', login);
 router.get('/getusers', login);
 // Local storage video upload route (FIXED with absolute paths and debugging)
@@ -205,5 +205,35 @@ router.get('/videos/employee/:employeeId', videocontroller.getVideosByEmployeeId
 router.get('/videos/all', videocontroller.getAllVideos);
 router.get('/video/:id', videocontroller.getVideoById);
 router.delete('/video/:id', videocontroller.deleteVideo);
+
+// Google Drive video upload routes
+router.post('/video/upload-to-drive', uploadWithDebug('video'), videocontroller.uploadVideoToDrive);
+router.post('/video/upload-base64-to-drive', videocontroller.uploadBase64VideoToDrive);
+
+// Google Drive test routes
+const { testDriveConnection, listTestFiles } = require('../services/driveTestService');
+router.get('/drive/test-connection', async (req, res) => {
+    const result = await testDriveConnection();
+    res.status(result.success ? 200 : 500).json(result);
+});
+router.get('/drive/list-files', async (req, res) => {
+    const result = await listTestFiles();
+    res.status(result.success ? 200 : 500).json(result);
+});
+
+// Debug environment variables
+router.get('/debug/env', (req, res) => {
+    res.json({
+        env: {
+            GOOGLE_DRIVE_FOLDER_ID: process.env.GOOGLE_DRIVE_FOLDER_ID,
+            GOOGLE_SERVICE_ACCOUNT_KEY_PATH: process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH,
+            MONGO_URI: process.env.MONGO_URI ? '***SET***' : 'NOT_SET',
+            PORT: process.env.PORT || 3000
+        },
+        workingDirectory: process.cwd(),
+        serverDirectory: __dirname,
+        envPath: path.join(__dirname, '..', '.env')
+    });
+});
 
 module.exports = router;
