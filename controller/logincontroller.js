@@ -1,42 +1,83 @@
 const Login = require('../model/loginmodel');
 
 
+const jwt = require("jsonwebtoken");
 
 const bcrypt = require('bcrypt');
-
 
 exports.register = async (req, res) => {
   try {
     const { email, password, role = "user" } = req.body;
 
-    // Check existing user
-    const existingUser = await Login.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({ message: "User already exists" });
+    // Fast validation
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and password are required",
+      });
     }
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 8); // reduce from 10 → 8 (faster)
+    // Check existing user using lean() for speed
+    const existingUser = await Login.findOne({ email })
+      .select("_id")
+      .lean();
 
-    const user = new Login({
+    if (existingUser) {
+      return res.status(409).json({
+        success: false,
+        message: "User already exists",
+      });
+    }
+
+    // Faster hashing
+    const hashedPassword = await bcrypt.hash(password, 8);
+
+    // Create user directly
+    const user = await Login.create({
       email,
       password: hashedPassword,
       role,
+      createdAt: new Date(),
+      lastLogin: new Date(),
     });
 
-    await user.save();
+    // Generate token immediately
+    const token = jwt.sign(
+      {
+        id: user._id,
+        role: user.role,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
 
-    res.status(201).json({
+    // Send fast response
+    return res.status(201).json({
+      success: true,
       message: "User registered successfully",
+      token,
       user: {
+        id: user._id,
         email: user.email,
         role: user.role,
       },
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: error.message });
+    console.error("Register error:", error);
+
+    // Duplicate key error fallback
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "Email already exists",
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
   }
 };
 
@@ -106,47 +147,78 @@ exports.changeRole = async (req, res) => {
 
 
 
+
+
+
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const user = await Login.findOne({ email }).select("+password");
+    // Validate input quickly
+    if (!email || !password) {
+      return res.status(400).json({
+        message: "Email and password are required",
+      });
+    }
+
+    // Fetch only required fields
+    const user = await Login.findOne({ email })
+      .select("name email role password")
+      .lean(false);
 
     if (!user) {
-      return res.status(401).json({ message: "Invalid email or password" });
+      return res.status(401).json({
+        message: "Invalid email or password",
+      });
     }
 
-    const isPasswordValid = await bcrypt.compare(password, user.password);
+    // Fast password compare
+    const isMatch = await bcrypt.compare(password, user.password);
 
-    if (!isPasswordValid) {
-      return res.status(401).json({ message: "Invalid email or password" });
+    if (!isMatch) {
+      return res.status(401).json({
+        message: "Invalid email or password",
+      });
     }
 
-    // Send response first
-    res.status(200).json({
-      message: "Login successful",
-      user: {
-        email: user.email,
-        name: user.name,
+    // Generate JWT token
+    const token = jwt.sign(
+      {
+        id: user._id,
         role: user.role,
-        lastLogin: new Date()
-      }
-    });
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
 
-    // Update lastLogin after response
-    await Login.updateOne(
+    // Update last login WITHOUT waiting
+    Login.updateOne(
       { _id: user._id },
       { $set: { lastLogin: new Date() } }
-    );
+    ).catch(console.error);
+
+    // Send response immediately
+    return res.status(200).json({
+      success: true,
+      message: "Login successful",
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
+    });
 
   } catch (error) {
     console.error("Login error:", error);
-    res.status(500).json({ message: error.message });
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
   }
 };
-
-
-
 exports.supervisorlogin = async (req, res) => {
 
   try {
